@@ -10,6 +10,10 @@ mod web;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Parser)]
 #[command(name = "relay", version, about = "A full-featured DNS proxy with DHCP/RA support")]
 struct Cli {
