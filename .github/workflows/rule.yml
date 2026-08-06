@@ -1,0 +1,216 @@
+name: Build Ruleset
+
+on:
+  workflow_dispatch:
+
+env:
+  RULES_REPO: MetaCubeX/meta-rules-dat
+  RULES_REF: meta
+  RULES_PATH: geo/geosite
+  RULESET_BRANCH: ruleset
+
+jobs:
+  build:
+    name: Build .drs rulesets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      # -----------------------------------------------------------------------
+      # Download the latest relay binary from this repo's releases
+      # -----------------------------------------------------------------------
+      - name: Get latest release tag
+        id: release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const rel = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            core.setOutput('tag', rel.data.tag_name);
+
+      - name: Download relay binary (amd64)
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          curl -fsSL \
+            "https://github.com/${{ github.repository }}/releases/download/${TAG}/relay-linux-amd64" \
+            -o relay
+          chmod +x relay
+          ./relay --version
+
+      # -----------------------------------------------------------------------
+      # Download all .yaml files from MetaCubeX/meta-rules-dat geo/geosite
+      # -----------------------------------------------------------------------
+      - name: Download geosite yaml files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p yaml
+
+          echo "Fetching file list from ${RULES_REPO}/${RULES_PATH}@${RULES_REF}..."
+
+          # Use gh CLI to list files (handles pagination automatically)
+          gh api \
+            --paginate \
+            "repos/${RULES_REPO}/contents/${RULES_PATH}?ref=${RULES_REF}" \
+            --jq '.[].name' \
+            > all_files.txt
+
+          echo "Total files found: $(wc -l < all_files.txt)"
+
+          # Filter to only .yaml files
+          grep '\.yaml$' all_files.txt > yaml_files.txt
+          echo "YAML files to download: $(wc -l < yaml_files.txt)"
+
+          # Download in parallel (max 8 concurrent)
+          cat yaml_files.txt | xargs -P 8 -I{} sh -c '
+            URL="https://raw.githubusercontent.com/'"${RULES_REPO}"'/'"${RULES_REF}"'/'"${RULES_PATH}"'/{}"
+            curl -fsSL "$URL" -o "yaml/{}" && echo "  OK: {}" || echo "  FAIL: {}"
+          '
+
+          echo "Downloaded: $(ls yaml/*.yaml 2>/dev/null | wc -l) files"
+
+      # -----------------------------------------------------------------------
+      # Convert each .yaml → .drs
+      # -----------------------------------------------------------------------
+      - name: Convert yaml → drs
+        run: |
+          mkdir -p drs
+
+          total=0
+          failed=0
+
+          for yaml_file in yaml/*.yaml; do
+            name="$(basename "${yaml_file}" .yaml)"
+            drs_file="drs/${name}.drs"
+
+            if ./relay build \
+              --input "${yaml_file}" \
+              --format mihomo \
+              --output "${drs_file}" \
+              2>/dev/null; then
+              total=$((total + 1))
+            else
+              echo "  WARN: failed to convert ${yaml_file}"
+              failed=$((failed + 1))
+            fi
+          done
+
+          echo ""
+          echo "Converted: ${total} files"
+          echo "Failed:    ${failed} files"
+          echo ""
+          echo "DRS file sizes:"
+          du -sh drs/*.drs 2>/dev/null | sort -h | tail -20
+
+      # -----------------------------------------------------------------------
+      # Publish to the ruleset branch
+      # -----------------------------------------------------------------------
+      - name: Checkout or create ruleset branch
+        run: |
+          cd main
+          git fetch origin "${RULESET_BRANCH}" 2>/dev/null || true
+
+          if git ls-remote --exit-code origin "${RULESET_BRANCH}" > /dev/null 2>&1; then
+            git checkout "${RULESET_BRANCH}"
+          else
+            echo "Branch '${RULESET_BRANCH}' does not exist, creating orphan branch..."
+            git checkout --orphan "${RULESET_BRANCH}"
+            git rm -rf . --quiet
+          fi
+
+      - name: Sync files into ruleset branch
+        run: |
+          cd main
+
+          # Remove old files
+          rm -f *.yaml *.drs
+
+          # Copy new yaml files
+          cp ../yaml/*.yaml . 2>/dev/null || true
+
+          # Copy new drs files
+          cp ../drs/*.drs . 2>/dev/null || true
+
+          YAML_COUNT=$(ls *.yaml 2>/dev/null | wc -l)
+          DRS_COUNT=$(ls *.drs 2>/dev/null | wc -l)
+          echo "yaml: ${YAML_COUNT}, drs: ${DRS_COUNT}"
+
+      - name: Write README for ruleset branch
+        run: |
+          cd main
+          SOURCE_DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          YAML_COUNT=$(ls *.yaml 2>/dev/null | wc -l)
+          DRS_COUNT=$(ls *.drs 2>/dev/null | wc -l)
+
+          cat > README.md << EOF
+          # relay ruleset
+
+          Pre-built \`.drs\` rulesets converted from [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat/tree/meta/geo/geosite).
+
+          Updated: ${SOURCE_DATE}
+          Source: \`${RULES_REPO}@${RULES_REF}/${RULES_PATH}\`
+
+          | | Count |
+          |---|---|
+          | YAML source files | ${YAML_COUNT} |
+          | DRS ruleset files | ${DRS_COUNT} |
+
+          ## Usage
+
+          Download a \`.drs\` file and reference it in your relay config:
+
+          \`\`\`toml
+          [[dns.rules]]
+          rulesets = ["/etc/relay/rules/cn.drs"]
+          upstream = "china"
+          \`\`\`
+
+          Or use the raw URL directly in a script:
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/ruleset/cn.drs \\
+            -o /etc/relay/rules/cn.drs
+          \`\`\`
+
+          ## Files
+
+          Each file corresponds to a geosite category. Common ones:
+
+          | File | Description |
+          |------|-------------|
+          | \`cn.drs\` | Chinese mainland domains |
+          | \`geolocation-!cn.drs\` | Non-Chinese domains |
+          | \`category-ads-all.drs\` | Ad/tracker domains |
+          | \`google.drs\` | Google services |
+          | \`microsoft.drs\` | Microsoft services |
+          | \`apple.drs\` | Apple services |
+          EOF
+
+      - name: Commit and push
+        run: |
+          cd main
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          SOURCE_DATE=$(date -u '+%Y-%m-%d')
+          DRS_COUNT=$(ls *.drs 2>/dev/null | wc -l)
+
+          git commit -m "ruleset: update ${SOURCE_DATE} (${DRS_COUNT} files)"
+          git push origin "${RULESET_BRANCH}"
+          echo "Pushed to branch: ${RULESET_BRANCH}"

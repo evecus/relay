@@ -1,0 +1,46 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="node" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 盾形底：代表 DNS 过滤 / 防护 -->
+  <path d="M32 3
+           L54 11
+           V29
+           C54 45 44 55 32 61
+           C20 55 10 45 10 29
+           V11
+           Z"
+        fill="url(#bg)"/>
+  <path d="M32 3
+           L54 11
+           V29
+           C54 45 44 55 32 61
+           C20 55 10 45 10 29
+           V11
+           Z"
+        fill="none" stroke="#1e3a8a" stroke-width="1.2" opacity="0.35"/>
+
+  <!-- 路由连接线：中心节点分发到三个上游，呼应“规则路由 / 多上游” -->
+  <g stroke="#bfdbfe" stroke-width="2.4" stroke-linecap="round" opacity="0.9">
+    <line x1="32" y1="30" x2="20" y2="20"/>
+    <line x1="32" y1="30" x2="44" y2="20"/>
+    <line x1="32" y1="30" x2="32" y2="44"/>
+  </g>
+
+  <!-- 中心节点：DNS 解析核心 -->
+  <circle cx="32" cy="30" r="7" fill="url(#node)"/>
+  <circle cx="32" cy="30" r="7" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>
+
+  <!-- 外围三个上游端点 -->
+  <circle cx="20" cy="20" r="4" fill="#ffffff"/>
+  <circle cx="44" cy="20" r="4" fill="#ffffff"/>
+  <circle cx="32" cy="44" r="4" fill="#ffffff"/>
+</svg>

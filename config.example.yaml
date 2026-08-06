@@ -1,0 +1,198 @@
+# relay configuration template (YAML, mihomo DNS style)
+# https://github.com/yourname/relay
+
+# ---------------------------------------------------------------------------
+# 日志等级：off / error / warn / info / debug，默认 info。
+# 若设置了环境变量 RUST_LOG，则环境变量优先于本配置。
+# ---------------------------------------------------------------------------
+log-level: info
+
+# ---------------------------------------------------------------------------
+# 监听地址。用端口 53 即可作为系统 DNS（需 root）；
+# 用其他端口（如 5353）可作为 mihomo / sing-box 等工具的上游，无需 root。
+# ---------------------------------------------------------------------------
+listen: 127.0.0.1:53
+
+# 启动时把 "nameserver 127.0.0.1" 写入 /etc/resolv.conf，退出时还原。
+# 仅当 listen 端口为 53 时有效（resolv.conf 不支持自定义端口）。
+manage-resolv-conf: true
+
+# IP 策略：default / only_ipv4 / only_ipv6 / prefer_ipv4 / prefer_ipv6
+strategy: only_ipv4
+
+# ---------------------------------------------------------------------------
+# default-nameserver：解析上游 DNS 服务器域名用的递归 DNS。
+# 必须是 IP 字面量（不带协议前缀），默认端口 53。域名形式会被拒绝（避免循环依赖）。
+#
+# 实现方式：lazy 异步解析 + 进程级缓存。
+#   - 仅在真正需要连接上游（DoT/DoH/DoQ 域名形式）时才发起解析；
+#   - 解析结果缓存（TTL 内复用），不阻塞启动；
+#   - 当 manage-resolv-conf 或 firewall 启用且上游含域名时，此项必填。
+# ---------------------------------------------------------------------------
+default-nameserver:
+  - 1.1.1.1
+  - 8.8.8.8
+
+# ---------------------------------------------------------------------------
+# nameserver：保底 DNS（走完 rules 后用）。等价于 mihomo 的 nameserver。
+# 两种写法：
+#   简写：直接给 url 列表（strategy=round_robin, insecure=false, 无 ECS）
+#   完整：对象形式，可指定 strategy / insecure / client-subnet
+#
+# 支持的 URL scheme：
+#   udp://1.1.1.1            Plain DNS over UDP（端口 53）
+#   tcp://1.1.1.1            Plain DNS over TCP（端口 53）
+#   tls://8.8.8.8            DNS over TLS（端口 853）
+#   tls://dns.google         DoT 域名 SNI（运行时由 default-nameserver 解析）
+#   https://dns.google/dns-query   DNS over HTTPS
+#   quic://dns.adguard.com         DNS over QUIC（端口 853, RFC 9250）
+#   dhcp://eth0             使用该接口 DHCP 下发的 DNS
+#   rcode://refused         永远返回 REFUSED（显式拒绝，客户端可能 fallback）
+#   rcode://nxdomain        永远返回 NXDOMAIN（域名不存在）
+#   rcode://servfail        永远返回 SERVFAIL（服务器失败）
+#   rcode://succeed         返回空 NOERROR（黑洞，客户端立即停止；等同 mihomo REJECT）
+#                           别名：success / noerror / empty
+# 不带前缀的 IP 字面量（如 223.5.5.5）视为 udp://。
+# 不带前缀的域名不被接受——必须写成 udp://domain 或 tls://domain 等。
+# ---------------------------------------------------------------------------
+nameserver:
+  - tls://8.8.8.8
+  - tls://1.1.1.1
+# 完整写法示例：
+# nameserver:
+#   servers:
+#     - tls://8.8.8.8
+#     - tls://1.1.1.1
+#   strategy: round_robin      # round_robin(默认) | fastest
+#   insecure: false            # 跳过 DoT/DoH/DoQ 的 TLS 证书验证
+#   client-subnet: "1.2.3.0/24"  # EDNS Client Subnet (RFC 7871)
+
+# ---------------------------------------------------------------------------
+# rules：命名上游组（被 rulesets 引用）。
+# key 可以是单个名字，也可以是数组（多个别名共享同一组）。
+#
+# 数组引用示例：google 和 youtube 共用同一组上游。
+# ---------------------------------------------------------------------------
+rules:
+  china:
+    - udp://223.5.5.5
+    - udp://119.29.29.29
+  [google, youtube]:
+    - https://dns.google/dns-query
+    - tls://8.8.8.8
+# 完整写法示例：
+# rules:
+#   china:
+#     servers:
+#       - udp://223.5.5.5
+#     strategy: fastest
+
+# ---------------------------------------------------------------------------
+# rulesets：域名规则集 → 上游组映射。按顺序匹配，首个命中生效。
+# 支持两种写法（可混用，但建议统一风格）：
+#
+# 1) map 写法（1:1，upstream → path）：
+#      rulesets:
+#        china:  /etc/relay/cn.drs
+#        google: /etc/relay/google.drs
+#
+# 2) list 写法（可多对一，显式字段）：
+#      rulesets:
+#        - path: /etc/relay/cn.drs
+#          upstream: china
+#        - path: /etc/relay/google.drs
+#          upstream: google
+#
+# 用 relay build 构建 .drs：
+#   relay build --input rules.yaml --format mihomo --output cn.drs
+# ---------------------------------------------------------------------------
+rulesets:
+  china:  /etc/relay/cn.drs
+  google: /etc/relay/google.drs
+
+# ---------------------------------------------------------------------------
+# hosts：静态解析。直接应答，不转发上游。
+# ---------------------------------------------------------------------------
+hosts:
+  # router.local: 192.168.1.1
+  # nas.local: 192.168.1.2
+
+# ---------------------------------------------------------------------------
+# cache：DNS 响应缓存。默认开启。
+# ---------------------------------------------------------------------------
+cache:
+  enable: true
+  size: 4096       # 最大缓存条目数
+  min-ttl: 60      # 把 TTL 向上钳到该值（秒）
+  max-ttl: 86400   # 把 TTL 向下钳到该值（秒）
+
+# ---------------------------------------------------------------------------
+# firewall：透明重定向（可选，需 root）。
+# 把硬编码 DNS（如 8.8.8.8）的流量重定向到 relay。
+#
+# backend: auto(默认) | nftables | iptables | pf
+# relay 自动排除自身进程以防环路；但若上游用 UDP/TCP 53 仍会环路，
+# 建议配合 DoT/DoH/DoQ 上游使用。
+# 规则启动时安装，退出时（SIGINT/SIGTERM）清理。
+# ---------------------------------------------------------------------------
+# firewall:
+#   enable: true
+#   backend: auto
+#   localhost-hijack: true        # 重定向本机 DNS（OUTPUT 链）
+#   lan-hijack: false             # 重定向局域网 DNS（需 net.ipv4.ip_forward=1）
+#   lan-cidr: "192.168.1.0/24"
+#   lan-interface: eth0
+
+# ---------------------------------------------------------------------------
+# DHCP / RA（可选）
+# ---------------------------------------------------------------------------
+dhcp:
+  v4:
+    enable: true
+    interface: eth0
+    range: ["192.168.1.100", "192.168.1.200"]
+    gateway: 192.168.1.2
+    dns: [192.168.1.2]
+    domain: local
+    lease-time: 24h
+    arp-probe: true
+    lease-file: /var/lib/relay/dhcp4.leases
+  v6:
+    enable: true
+    interface: eth0
+    mode: stateless
+    dns: ["fd00::2"]
+    domain: local
+  ra:
+    enable: true
+    interface: eth0
+    preference: high
+    interval: 30
+    other: true
+    rdnss: ["fd00::2"]
+    suppress-other-routers: true
+
+# ---------------------------------------------------------------------------
+# web：Web 管理面板（类似 AdGuard Home）。
+# 提供 JSON API + 内嵌前端（React），查看上游响应速度、规则命中、
+# 查询日志等。统计数据持久化到 SQLite，重启后保留。
+#
+# 前端构建：./web/build.sh（产出 dist/ 并复制到 src/web/static/ 嵌入）
+# 也可用 web-dir 指定外部目录（调试时方便）。
+# ---------------------------------------------------------------------------
+web:
+  enable: true
+  # 监听地址：127.0.0.1:8080（仅本机）或 0.0.0.0:8080（局域网可访问）
+  listen: 127.0.0.1:8080
+  # 内存查询日志 ring buffer 容量（最近 N 条，默认 5000）
+  query-log-size: 5000
+  # SQLite 路径（持久化统计计数器 + 查询日志）
+  sqlite-path: /var/lib/relay/stats.db
+  # 外部静态资源目录（可选）。不设置则用内嵌前端。
+  # web-dir: /opt/relay/web-dist
+  # Basic Auth 认证
+  auth:
+    enable: true
+    username: admin
+    # bcrypt 哈希。用 `relay hash-password` 生成。
+    password-hash: "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"

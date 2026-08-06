@@ -1,0 +1,79 @@
+name: test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: relay
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-musl
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-registry-
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: target/
+          key: build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: build-${{ matrix.target }}-
+
+      - name: Install cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build
+        run: |
+          cross build \
+            --release \
+            --target ${{ matrix.target }} \
+            --bin relay
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/relay \
+             ${{ env.BINARY_NAME }}-linux-${{ matrix.arch }}-${{ github.run_number }}
+
+      - name: Archive source code
+        run: |
+          git archive --format=zip --output=test-code-${{ github.run_number }}.zip HEAD
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test
+          name: relay test
+          draft: false
+          files: |
+            ${{ env.BINARY_NAME }}-linux-${{ matrix.arch }}-${{ github.run_number }}
+            test-code-${{ github.run_number }}.zip

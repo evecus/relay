@@ -1,0 +1,76 @@
+name: build web ui
+
+# 当 web/ui 下的前端源码发生变化时，自动构建并把产物
+# 提交回 src/web/static/（供 Rust 端 include_dir! 内嵌）。
+#
+# 也支持手动触发（workflow_dispatch），便于在依赖或
+# 构建脚本变化、但没有直接改前端代码时手动重建。
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/ui/**'
+      - 'web/build.sh'
+      - '.github/workflows/build-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & commit web/ui dist
+    runs-on: ubuntu-latest
+    # 避免本 workflow 自己的提交再次触发自己
+    if: "!contains(github.event.head_commit.message, '[skip web-ci]')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要写权限的默认 token 即可推送到当前分支
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web/ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: web/ui
+        run: npm run build
+
+      - name: Sync dist -> src/web/static
+        run: |
+          mkdir -p src/web/static
+          find src/web/static -mindepth 1 -delete
+          cp -r web/ui/dist/. src/web/static/
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git add src/web/static
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit & push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(web): rebuild frontend static assets [skip web-ci]"
+          git push
