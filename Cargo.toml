@@ -8,7 +8,11 @@ rust-version = "1.84"
 name = "relay"
 path = "src/main.rs"
 
+[features]
+jemalloc = ["dep:tikv-jemallocator"]
+
 [dependencies]
+tikv-jemallocator = { version = "0.6", optional = true }
 tokio = { version = "1", features = ["full"] }
 hickory-proto = "0.24"
 fst = "0.4"
