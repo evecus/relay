@@ -57,7 +57,8 @@ jobs:
           cross build \
             --release \
             --target ${{ matrix.target }} \
-            --bin relay
+            --bin relay \
+            --features jemalloc
 
       - name: Rename binary
         run: |
