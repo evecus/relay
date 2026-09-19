@@ -67,10 +67,6 @@ impl Default for DotPool {
     }
 }
 
-/// 保持旧类型名以兼容外部引用（`UpstreamServer` 中字段类型）。
-#[allow(dead_code)]
-pub type PooledTlsConn = TlsConn;
-
 pub async fn query(
     host: &str,
     port: u16,

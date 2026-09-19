@@ -19,6 +19,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   check:
@@ -48,9 +49,8 @@ jobs:
           key: check-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: check-
 
-      # 不带 --all-targets：部分单元测试仍按旧 write_v2 签名调用，会编译失败
       - name: cargo check
-        run: cargo check
+        run: cargo check --all-targets
 
   clippy:
     name: cargo clippy
@@ -81,6 +81,5 @@ jobs:
           key: clippy-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: clippy-
 
-      # 暂不 -D warnings：代码里有 dead_code / doc 缩进等存量问题
       - name: cargo clippy
-        run: cargo clippy -- -A clippy::doc_overindented_list_items
+        run: cargo clippy --all-targets -- -D warnings
