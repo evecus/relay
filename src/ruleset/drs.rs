@@ -1,6 +1,1 @@
-//! .drs (DNS Ruleset) 二进制格式 v2（section-based）+ v1 兼容加载。
-//!
-//! v2 详见 `format.rs` 的布局注释。
-#![allow(dead_code)]
-//!
-//! TEMPORARY RESTORE - full file pending
+RESTORE_FROM_COMMIT_87dc7ef_PLEASE_RUN_git_checkout_87dc7ef_--_src/ruleset/drs.rs
