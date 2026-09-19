@@ -31,8 +31,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.84'
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -64,7 +62,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: '1.84'
           components: clippy
 
       - name: Cache cargo registry
