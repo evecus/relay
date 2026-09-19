@@ -76,6 +76,8 @@ impl AuthState {
 
     /// 校验 token 是否有效（存在且未过期）；有效则刷新其活动时间。
     fn touch(&self, token: &str) -> bool {
+        // 顺带清理过期 session，避免 map 无限增长
+        self.cleanup_expired();
         if let Some(mut entry) = self.sessions.get_mut(token) {
             if entry.elapsed() > SESSION_TTL {
                 drop(entry);
@@ -89,10 +91,8 @@ impl AuthState {
         }
     }
 
-    /// 清理所有过期 session（可选的周期性调用，避免内存无限增长；
-    /// 未调用也不会内存泄漏得很快，因为每次请求都会顺带过期判定）。
-    #[allow(dead_code)]
-    pub fn cleanup_expired(&self) {
+    /// 清理所有过期 session。
+    fn cleanup_expired(&self) {
         self.sessions
             .retain(|_, last| last.elapsed() <= SESSION_TTL);
     }
