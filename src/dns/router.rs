@@ -96,10 +96,18 @@ impl Router {
                 )
             })?;
             info!(
-                "Loaded ruleset {} ({} domains, {} suffixes) → upstream {}",
+                "Loaded ruleset {} (domains={}, suffixes={}, keywords={}, regex={}, ipv4={}, ipv6={}, ports={}, exclude_d/s/r={}/{}/{}) → upstream {}",
                 path.display(),
                 drs.domain_count,
                 drs.suffix_count,
+                drs.keyword_count,
+                drs.regex_count,
+                drs.ipv4_cidr_count,
+                drs.ipv6_cidr_count,
+                drs.port_count,
+                drs.exclude_domain_count,
+                drs.exclude_suffix_count,
+                drs.exclude_regex_count,
                 entry.upstream
             );
             rules.push(LoadedRule {
