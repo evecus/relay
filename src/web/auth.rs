@@ -91,6 +91,7 @@ impl AuthState {
 
     /// 清理所有过期 session（可选的周期性调用，避免内存无限增长；
     /// 未调用也不会内存泄漏得很快，因为每次请求都会顺带过期判定）。
+    #[allow(dead_code)]
     pub fn cleanup_expired(&self) {
         self.sessions
             .retain(|_, last| last.elapsed() <= SESSION_TTL);
