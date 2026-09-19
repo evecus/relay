@@ -41,7 +41,6 @@ pub struct ResolveMeta {
     pub upstream_latency_ms: Option<f32>,
 }
 
-#[allow(dead_code)]
 pub struct Router {
     hosts: HostsTable,
     rules: Vec<LoadedRule>,
@@ -49,7 +48,7 @@ pub struct Router {
     cache: Option<Arc<DnsCache>>,
     strategy: IpStrategy,
     dynamic_hosts: Arc<DynamicHosts>,
-    stats: Option<Arc<StatsCollector>>,
+    _stats: Option<Arc<StatsCollector>>,
 }
 
 /// 相对路径拼到 base 下；绝对路径原样返回。
@@ -126,18 +125,11 @@ impl Router {
             info!("IP strategy: {:?}", strategy);
         }
 
-        Ok(Self { hosts, rules, upstreams, cache, strategy, dynamic_hosts, stats })
-    }
-
-    pub async fn resolve(&self, request: &Message) -> Result<Message> {
-    #[allow(dead_code)]
-        let (msg, _meta) = self.resolve_with_meta(request).await?;
-        Ok(msg)
+        Ok(Self { hosts, rules, upstreams, cache, strategy, dynamic_hosts, _stats: stats })
     }
 
     /// 解析并返回元信息（供 listener 记录统计）。
     pub async fn resolve_with_meta(&self, request: &Message) -> Result<(Message, ResolveMeta)> {
-    #[allow(dead_code)]
         let query = match request.queries().first() {
             Some(q) => q,
             None => bail!("Empty DNS query"),
