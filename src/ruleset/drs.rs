@@ -11,6 +11,9 @@
 //! - 后缀 FST 的 key 用「反转 label + 尾点」（`com.google.`），语义清晰，避免 `com.googleX` 边界问题。
 //! - 加载侧对 FST 字节用 `Arc<[u8]>` 共享，避免 to_vec 二次复制（v1 路径仍走 vec）。
 
+// 嵌入 binary 的类库模块：matches_ip/write/元数据等为对外 API，当前 DNS 路径未全部调用。
+#![allow(dead_code)]
+
 use super::error::{DrsError, Result};
 use super::format::{
     read_section_header, validate_domain_len, write_section_header, SectionType, MAGIC,
