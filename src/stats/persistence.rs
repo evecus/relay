@@ -1,14 +1,14 @@
 //! SQLite 持久化：计数器累加表 + 查询日志表。
 //!
 //! 表结构：
-//!   - totals(key TEXT PRIMARY KEY, value INTEGER)
-//!       存总查询数、被拦截数、失败数、缓存命中数、hosts 命中数。
-//!       重启后累加恢复。
-//!   - query_log(id TEXT PRIMARY KEY, time TEXT, client TEXT, domain TEXT,
-//!               qtype TEXT, upstream TEXT, rcode TEXT, latency_ms REAL,
-//!               rule TEXT, cached INTEGER, blocked INTEGER)
-//!       按时间倒序查询，支持 domain/client 筛选。
-//!       定期清理超过 retention 的旧记录。
+//! - totals(key TEXT PRIMARY KEY, value INTEGER)
+//!   存总查询数、被拦截数、失败数、缓存命中数、hosts 命中数。
+//!   重启后累加恢复。
+//! - query_log(id TEXT PRIMARY KEY, time TEXT, client TEXT, domain TEXT,
+//!   qtype TEXT, upstream TEXT, rcode TEXT, latency_ms REAL,
+//!   rule TEXT, cached INTEGER, blocked INTEGER)
+//!   按时间倒序查询，支持 domain/client 筛选。
+//!   定期清理超过 retention 的旧记录。
 //!
 //! 并发：rusqlite::Connection 不是 Sync，所以用 Mutex 包一层。
 //! 后台 worker 单线程消费 channel，写入压力可控。
