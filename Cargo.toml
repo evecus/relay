@@ -65,9 +65,7 @@ arc-swap = "1"
 rand = "0.8"
 
 [profile.release]
-opt-level     = 3
-strip         = "symbols"
-debug         = false
-lto           = "fat"
+lto = true
 codegen-units = 1
-panic         = "abort"
+panic = "abort"
+strip = true
