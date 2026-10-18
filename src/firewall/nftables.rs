@@ -1,6 +1,6 @@
 //! nftables-based DNS redirect
 
-use super::FirewallBackend;
+use super::{FirewallBackend, PROTECT_MARK};
 use crate::config::FirewallConfig;
 use anyhow::{Context, Result};
 use std::process::Command;
@@ -33,7 +33,6 @@ impl NftablesBackend {
     }
 }
 
-// Helper trait to pipe stdin
 trait WaitWithInput {
     fn wait_with_output_from_stdin(self, input: &[u8]) -> Result<std::process::Output>;
 }
@@ -49,34 +48,31 @@ impl WaitWithInput for std::process::Child {
 }
 
 impl FirewallBackend for NftablesBackend {
-    fn setup(&self, config: &FirewallConfig, listen_port: u16, uid: u32) -> Result<()> {
-        // Clean up any existing rules first
+    fn setup(&self, config: &FirewallConfig, listen_port: u16) -> Result<()> {
         let _ = self.cleanup();
 
-        let mut script = format!(
-            "table ip {table} {{\n",
-            table = TABLE_NAME
-        );
+        let mut script = format!("table ip {table} {{\n", table = TABLE_NAME);
         script.push_str("    chain nat_output {\n");
         script.push_str("        type nat hook output priority -100;\n");
 
         if config.localhost_hijack {
-            // Exclude our own process by UID to prevent routing loops
+            // Skip packets marked by relay itself (upstream / bootstrap DNS)
             script.push_str(&format!(
-                "        meta skuid {uid} return\n",
-                uid = uid
+                "        meta mark 0x{mark:x} return\n",
+                mark = PROTECT_MARK
             ));
-            // Redirect UDP port 53 → listen_port
             script.push_str(&format!(
                 "        udp dport 53 redirect to :{port}\n",
                 port = listen_port
             ));
-            // Redirect TCP port 53 → listen_port
             script.push_str(&format!(
                 "        tcp dport 53 redirect to :{port}\n",
                 port = listen_port
             ));
-            info!("nftables: localhost DNS hijack enabled (uid {} excluded)", uid);
+            info!(
+                "nftables: localhost DNS hijack enabled (mark 0x{:x} excluded)",
+                PROTECT_MARK
+            );
         }
 
         script.push_str("    }\n");
@@ -85,16 +81,13 @@ impl FirewallBackend for NftablesBackend {
             script.push_str("    chain nat_prerouting {\n");
             script.push_str("        type nat hook prerouting priority -100;\n");
 
-            // Optionally restrict to specific CIDR
             let cidr_match = if let Some(ref cidr) = config.lan_cidr {
                 format!("ip saddr {} ", cidr)
             } else {
                 String::new()
             };
-
-            // Optionally restrict to specific interface
             let iface_match = if let Some(ref iface) = config.lan_interface {
-                format!("iifname {} ", iface)
+                format!("iifname \"{}\" ", iface)
             } else {
                 String::new()
             };
@@ -127,10 +120,10 @@ impl FirewallBackend for NftablesBackend {
 
         match output {
             Ok(o) if o.status.success() => Ok(()),
-            Ok(_) => Ok(()), // Table didn't exist, that's fine
+            Ok(_) => Ok(()),
             Err(e) => {
                 tracing::warn!("Failed to run nft cleanup: {}", e);
-                Ok(()) // Best effort
+                Ok(())
             }
         }
     }

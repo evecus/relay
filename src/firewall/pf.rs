@@ -16,7 +16,7 @@ impl PfBackend {
 }
 
 impl FirewallBackend for PfBackend {
-    fn setup(&self, config: &FirewallConfig, listen_port: u16, _uid: u32) -> Result<()> {
+    fn setup(&self, config: &FirewallConfig, listen_port: u16) -> Result<()> {
         let _ = self.cleanup();
 
         let mut rules = String::new();

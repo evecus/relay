@@ -1,6 +1,9 @@
 pub mod iptables;
 pub mod nftables;
 pub mod pf;
+pub mod protect;
+
+pub use protect::{apply_protect_mark, PROTECT_MARK};
 
 use anyhow::{bail, Result};
 use crate::config::FirewallConfig;
@@ -11,15 +14,18 @@ pub struct FirewallGuard {
 }
 
 impl FirewallGuard {
-    pub fn setup(config: &FirewallConfig, listen_port: u16, uid: u32) -> Result<Self> {
+    pub fn setup(config: &FirewallConfig, listen_port: u16) -> Result<Self> {
         let backend: Box<dyn FirewallBackend + Send + Sync> = match detect_backend(&config.backend)? {
             BackendKind::Nftables => Box::new(nftables::NftablesBackend::new()),
             BackendKind::Iptables => Box::new(iptables::IptablesBackend::new()),
             BackendKind::Pf => Box::new(pf::PfBackend::new()),
         };
 
-        backend.setup(config, listen_port, uid)?;
-        info!("Firewall rules installed (port 53 → {})", listen_port);
+        backend.setup(config, listen_port)?;
+        info!(
+            "Firewall rules installed (port 53 → {}, protect mark 0x{:x})",
+            listen_port, PROTECT_MARK
+        );
 
         Ok(Self { backend })
     }
@@ -36,7 +42,7 @@ impl Drop for FirewallGuard {
 }
 
 pub trait FirewallBackend {
-    fn setup(&self, config: &FirewallConfig, listen_port: u16, uid: u32) -> Result<()>;
+    fn setup(&self, config: &FirewallConfig, listen_port: u16) -> Result<()>;
     fn cleanup(&self) -> Result<()>;
 }
 
@@ -56,12 +62,10 @@ fn detect_backend(preference: &str) -> Result<BackendKind> {
         other => bail!("Unknown firewall backend: {}", other),
     }
 
-    // Auto-detect
     if cfg!(target_os = "macos") {
         return Ok(BackendKind::Pf);
     }
 
-    // Linux: prefer nftables, fall back to iptables
     if which_exists("nft") {
         return Ok(BackendKind::Nftables);
     }
