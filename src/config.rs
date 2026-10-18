@@ -299,6 +299,14 @@ pub struct FirewallConfig {
     pub lan_hijack: bool,
     pub lan_cidr: Option<String>,
     pub lan_interface: Option<String>,
+    /// relay 自身发往上游的 DNS socket 所打的 fwmark（SO_MARK）。
+    /// 防火墙对带此 mark 的流量放行（防回环），其它进程（包括 root）的 53 流量照常劫持。
+    #[serde(default = "default_fwmark")]
+    pub fwmark: u32,
+}
+
+fn default_fwmark() -> u32 {
+    crate::sockmark::DEFAULT_FWMARK
 }
 
 fn default_backend() -> String {

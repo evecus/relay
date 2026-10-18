@@ -5,6 +5,7 @@ mod dns;
 mod firewall;
 mod ruleset;
 mod runtime;
+mod sockmark;
 mod stats;
 mod web;
 
