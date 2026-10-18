@@ -143,7 +143,7 @@ async fn connect_and_exchange(
     let addr = resolver.resolve_socket_addr(host, port).await?;
 
     timeout(DOT_CONNECT_TIMEOUT, async {
-        let tcp = TcpStream::connect(addr).await.context("DoT TCP connect failed")?;
+        let tcp = crate::sockmark::connect_tcp(addr).await.context("DoT TCP connect failed")?;
         let mut tls = connector
             .connect(server_name, tcp)
             .await

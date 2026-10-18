@@ -11,7 +11,6 @@
 //! 同时实现 `reqwest::dns::Resolve` trait，让 DoH 的 reqwest::Client 也用
 //! default_nameserver 解析域名，而不是系统 resolver。
 
-use crate::firewall::apply_protect_mark;
 use anyhow::{Context, Result};
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
 use hickory_proto::rr::{Name, RData, RecordType};
@@ -22,7 +21,6 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::{debug, warn};
@@ -146,14 +144,8 @@ async fn query_record(ns: SocketAddr, name: Name, rtype: RecordType) -> Result<V
 
     let wire = msg.to_vec()?;
 
-    let bind = match ns {
-        SocketAddr::V4(_) => "0.0.0.0:0",
-        SocketAddr::V6(_) => "[::]:0",
-    };
-    let socket = UdpSocket::bind(bind)
-        .await
+    let socket = crate::sockmark::bind_udp(ns)
         .context("Failed to bind UDP for host resolution")?;
-    apply_protect_mark(&socket);
     socket.connect(ns).await?;
     socket.send(&wire).await?;
 

@@ -10,11 +10,9 @@ use hickory_proto::op::Message;
 use hickory_proto::serialize::binary::BinDecodable;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 
 use super::util;
-use crate::firewall::apply_protect_mark;
 
 const TCP_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -23,8 +21,7 @@ pub async fn query(addr: SocketAddr, request: &Message) -> Result<Message> {
 
     // 整体超时，含 connect + 写请求 + 读长度前缀 + 读 body
     let resp_bytes = timeout(TCP_TIMEOUT, async {
-        let mut stream = TcpStream::connect(addr).await.context("TCP connect failed")?;
-        apply_protect_mark(&stream);
+        let mut stream = crate::sockmark::connect_tcp(addr).await.context("TCP connect failed")?;
         util::tcp_framed_exchange(&mut stream, &wire).await
     })
     .await

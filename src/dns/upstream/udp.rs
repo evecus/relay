@@ -32,7 +32,6 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use super::tcp;
-use crate::firewall::apply_protect_mark;
 
 const UDP_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_UDP_BUF: usize = 4096;
@@ -45,15 +44,9 @@ pub async fn query(addr: SocketAddr, request: &Message) -> Result<Message> {
         .map(|s| (s as usize).clamp(DEFAULT_UDP_BUF, MAX_UDP_BUF))
         .unwrap_or(DEFAULT_UDP_BUF);
 
-    // 选择本机出站地址族匹配的源地址
-    let bind = match addr {
-        SocketAddr::V4(_) => "0.0.0.0:0",
-        SocketAddr::V6(_) => "[::]:0",
-    };
-    let socket = UdpSocket::bind(bind)
-        .await
+    // 地址族匹配 + 打 fwmark（防火墙劫持放行，避免回环）
+    let socket = crate::sockmark::bind_udp(addr)
         .context("Failed to bind UDP socket for upstream")?;
-    apply_protect_mark(&socket);
     socket.connect(addr).await.context("Failed to connect UDP")?;
 
     socket.send(&wire).await.context("UDP send failed")?;
@@ -122,14 +115,8 @@ impl UdpPool {
             return Ok(inner.clone());
         }
 
-        let bind = match self.addr {
-            SocketAddr::V4(_) => "0.0.0.0:0",
-            SocketAddr::V6(_) => "[::]:0",
-        };
-        let socket = UdpSocket::bind(bind)
-            .await
+        let socket = crate::sockmark::bind_udp(self.addr)
             .context("Failed to bind UDP socket for upstream pool")?;
-        apply_protect_mark(&socket);
         socket
             .connect(self.addr)
             .await
