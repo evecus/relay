@@ -1,9 +1,6 @@
 pub mod iptables;
 pub mod nftables;
 pub mod pf;
-pub mod protect;
-
-pub use protect::{apply_protect_mark, PROTECT_MARK};
 
 use anyhow::{bail, Result};
 use crate::config::FirewallConfig;
@@ -15,17 +12,24 @@ pub struct FirewallGuard {
 
 impl FirewallGuard {
     pub fn setup(config: &FirewallConfig, listen_port: u16) -> Result<Self> {
+        if config.fwmark == 0 {
+            bail!("firewall.fwmark must be non-zero");
+        }
+        // 先让上游 socket 带上 mark，再安装规则，避免出现「规则已生效但 socket 未打 mark」的回环窗口
+        crate::sockmark::set_mark(config.fwmark);
+        crate::sockmark::set_strict(config.localhost_hijack);
+
         let backend: Box<dyn FirewallBackend + Send + Sync> = match detect_backend(&config.backend)? {
             BackendKind::Nftables => Box::new(nftables::NftablesBackend::new()),
             BackendKind::Iptables => Box::new(iptables::IptablesBackend::new()),
             BackendKind::Pf => Box::new(pf::PfBackend::new()),
         };
 
-        backend.setup(config, listen_port)?;
-        info!(
-            "Firewall rules installed (port 53 → {}, protect mark 0x{:x})",
-            listen_port, PROTECT_MARK
-        );
+        if let Err(e) = backend.setup(config, listen_port) {
+            crate::sockmark::set_strict(false);
+            return Err(e);
+        }
+        info!("Firewall rules installed (port 53 → {})", listen_port);
 
         Ok(Self { backend })
     }
@@ -38,6 +42,8 @@ impl Drop for FirewallGuard {
         } else {
             info!("Firewall rules removed");
         }
+        // 规则撤销后再关闭 strict（mark 本身保留，已建立的池化 socket 不受影响）
+        crate::sockmark::set_strict(false);
     }
 }
 
@@ -62,10 +68,12 @@ fn detect_backend(preference: &str) -> Result<BackendKind> {
         other => bail!("Unknown firewall backend: {}", other),
     }
 
+    // Auto-detect
     if cfg!(target_os = "macos") {
         return Ok(BackendKind::Pf);
     }
 
+    // Linux: prefer nftables, fall back to iptables
     if which_exists("nft") {
         return Ok(BackendKind::Nftables);
     }

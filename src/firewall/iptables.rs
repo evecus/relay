@@ -1,6 +1,6 @@
 //! iptables-based DNS redirect fallback
 
-use super::{FirewallBackend, PROTECT_MARK};
+use super::FirewallBackend;
 use crate::config::FirewallConfig;
 use anyhow::{Context, Result};
 use std::process::Command;
@@ -26,42 +26,44 @@ impl FirewallBackend for IptablesBackend {
     fn setup(&self, config: &FirewallConfig, listen_port: u16) -> Result<()> {
         let _ = self.cleanup();
 
+        // Create our chain
         self.ipt(&["-t", "nat", "-N", CHAIN_NAME])?;
 
         if config.localhost_hijack {
-            let mark = format!("0x{:x}", PROTECT_MARK);
-            let port = listen_port.to_string();
-
-            // Skip packets marked by relay itself
+            // 放行带 relay fwmark 的流量以防回环（不再按 uid 放行，root 其它进程仍被劫持）
             self.ipt(&[
                 "-t", "nat", "-A", CHAIN_NAME,
-                "-m", "mark", "--mark", &mark,
+                "-m", "mark", "--mark", &format!("0x{:x}", config.fwmark),
                 "-j", "RETURN",
             ])?;
 
+            // Redirect UDP 53
             self.ipt(&[
                 "-t", "nat", "-A", CHAIN_NAME,
                 "-p", "udp", "--dport", "53",
-                "-j", "REDIRECT", "--to-ports", &port,
+                "-j", "REDIRECT", "--to-ports", &listen_port.to_string(),
             ])?;
 
+            // Redirect TCP 53
             self.ipt(&[
                 "-t", "nat", "-A", CHAIN_NAME,
                 "-p", "tcp", "--dport", "53",
-                "-j", "REDIRECT", "--to-ports", &port,
+                "-j", "REDIRECT", "--to-ports", &listen_port.to_string(),
             ])?;
 
+            // Hook into OUTPUT chain
             self.ipt(&["-t", "nat", "-A", "OUTPUT", "-j", CHAIN_NAME])?;
-            info!(
-                "iptables: localhost DNS hijack enabled (mark 0x{:x} excluded)",
-                PROTECT_MARK
-            );
+            info!("iptables: localhost DNS hijack enabled (fwmark 0x{:x} excluded)", config.fwmark);
         }
 
         if config.lan_hijack {
-            let prerouting_args = vec!["-t", "nat", "-A", "PREROUTING"];
+            let prerouting_args = vec![
+                "-t", "nat", "-A", "PREROUTING",
+            ];
+
             let cidr_str;
             let iface_str;
+
             let mut extra: Vec<&str> = vec![];
 
             if let Some(ref iface) = config.lan_interface {
@@ -79,8 +81,8 @@ impl FirewallBackend for IptablesBackend {
             udp_args.extend(["-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", &port_str]);
             self.ipt(&udp_args)?;
 
-            let mut tcp_args = prerouting_args;
-            tcp_args.extend(extra);
+            let mut tcp_args = prerouting_args.clone();
+            tcp_args.extend(extra.clone());
             tcp_args.extend(["-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", &port_str]);
             self.ipt(&tcp_args)?;
 
@@ -91,8 +93,10 @@ impl FirewallBackend for IptablesBackend {
     }
 
     fn cleanup(&self) -> Result<()> {
+        // Remove references from OUTPUT/PREROUTING
         let _ = self.ipt(&["-t", "nat", "-D", "OUTPUT", "-j", CHAIN_NAME]);
         let _ = self.ipt(&["-t", "nat", "-D", "PREROUTING", "-j", CHAIN_NAME]);
+        // Flush and delete our chain
         let _ = self.ipt(&["-t", "nat", "-F", CHAIN_NAME]);
         let _ = self.ipt(&["-t", "nat", "-X", CHAIN_NAME]);
         Ok(())
