@@ -67,6 +67,11 @@ impl RuntimeHandle {
     ) -> Result<Arc<Self>> {
         let dynamic_hosts = Arc::new(DynamicHosts::new(dhcp_domain_of(&config.dhcp)));
 
+        // 上游 socket 的 fwmark 必须在任何查询发生前就位（防火墙之后才安装）
+        if let Some(fw) = &config.firewall {
+            crate::sockmark::set_mark(fw.fwmark);
+        }
+
         let router = Arc::new(
             Router::from_config(&config, dynamic_hosts.clone(), Some(stats.clone()), &base_dir)
                 .context("Failed to build initial DNS router")?,
