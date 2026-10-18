@@ -32,6 +32,7 @@ use tokio::time::timeout;
 use tracing::{debug, warn};
 
 use super::tcp;
+use crate::firewall::apply_protect_mark;
 
 const UDP_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_UDP_BUF: usize = 4096;
@@ -52,6 +53,7 @@ pub async fn query(addr: SocketAddr, request: &Message) -> Result<Message> {
     let socket = UdpSocket::bind(bind)
         .await
         .context("Failed to bind UDP socket for upstream")?;
+    apply_protect_mark(&socket);
     socket.connect(addr).await.context("Failed to connect UDP")?;
 
     socket.send(&wire).await.context("UDP send failed")?;
@@ -127,6 +129,7 @@ impl UdpPool {
         let socket = UdpSocket::bind(bind)
             .await
             .context("Failed to bind UDP socket for upstream pool")?;
+        apply_protect_mark(&socket);
         socket
             .connect(self.addr)
             .await

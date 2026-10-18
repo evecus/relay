@@ -11,6 +11,7 @@
 //! 同时实现 `reqwest::dns::Resolve` trait，让 DoH 的 reqwest::Client 也用
 //! default_nameserver 解析域名，而不是系统 resolver。
 
+use crate::firewall::apply_protect_mark;
 use anyhow::{Context, Result};
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
 use hickory_proto::rr::{Name, RData, RecordType};
@@ -152,6 +153,7 @@ async fn query_record(ns: SocketAddr, name: Name, rtype: RecordType) -> Result<V
     let socket = UdpSocket::bind(bind)
         .await
         .context("Failed to bind UDP for host resolution")?;
+    apply_protect_mark(&socket);
     socket.connect(ns).await?;
     socket.send(&wire).await?;
 
