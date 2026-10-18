@@ -79,9 +79,8 @@ impl RuntimeHandle {
 
         let firewall_guard = match &config.firewall {
             Some(fw) if fw.enable => {
-                let uid = unsafe { libc::getuid() };
                 Some(
-                    FirewallGuard::setup(fw, listen_addr.port(), uid)
+                    FirewallGuard::setup(fw, listen_addr.port())
                         .context("Failed to set up firewall redirect")?,
                 )
             }
@@ -225,9 +224,8 @@ impl RuntimeHandle {
 
         let new_guard = match new_fw {
             Some(fw) if fw.enable => {
-                let uid = unsafe { libc::getuid() };
                 Some(
-                    FirewallGuard::setup(&fw, listen_port, uid)
+                    FirewallGuard::setup(&fw, listen_port)
                         .context("Failed to apply new firewall rules (old rules already removed)")?,
                 )
             }
